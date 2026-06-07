@@ -1,0 +1,112 @@
+version: "3.9"
+
+networks:
+  exchange_net:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:
+
+services:
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: exchange_postgres
+    environment:
+      POSTGRES_DB: exchange
+      POSTGRES_USER: exchange
+      POSTGRES_PASSWORD: secret
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - exchange_net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U exchange -d exchange"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: exchange_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - exchange_net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    command: ["redis-server", "--save", "60", "1", "--loglevel", "warning"]
+
+  market:
+    build:
+      context: .
+      dockerfile: services/market/Dockerfile
+    container_name: exchange_market
+    environment:
+      HOST: 0.0.0.0
+      PORT: "8080"
+      REDIS_URL: redis://redis:6379
+      RUST_LOG: market=debug,tower_http=info
+    ports:
+      - "8080:8080"
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - exchange_net
+    restart: unless-stopped
+
+  portfolio:
+    build:
+      context: .
+      dockerfile: services/portfolio/Dockerfile
+    container_name: exchange_portfolio
+    environment:
+      HOST: 0.0.0.0
+      PORT: "8081"
+      DATABASE_URL: postgres://exchange:secret@postgres:5432/exchange
+      MARKET_URL: http://market:8080
+      REDIS_URL: redis://redis:6379
+      RUST_LOG: portfolio=debug,tower_http=info
+    ports:
+      - "8081:8081"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      market:
+        condition: service_started
+    networks:
+      - exchange_net
+    restart: unless-stopped
+
+  audit:
+    build:
+      context: .
+      dockerfile: services/audit/Dockerfile
+    container_name: exchange_audit
+    environment:
+      HOST: 0.0.0.0
+      PORT: "8082"
+      DATABASE_URL: postgres://exchange:secret@postgres:5432/exchange
+      REDIS_URL: redis://redis:6379
+      RUST_LOG: audit=debug,tower_http=info
+    ports:
+      - "8082:8082"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - exchange_net
+    restart: unless-stopped
