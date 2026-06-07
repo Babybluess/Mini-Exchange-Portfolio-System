@@ -124,6 +124,22 @@ curl http://localhost:8082/audit
 
 ## Test scenarios
 
+The scenarios below can be run manually via `curl`, or all at once with the bundled
+integration test suite:
+
+```bash
+# Make sure the stack is up first
+docker compose up --build
+
+# In another terminal
+chmod +x test_integration.sh
+./test_integration.sh
+```
+
+`test_integration.sh` polls each service until reachable, then runs scenarios 1-7
+below (plus a bonus `GET /orders/{orderId}` check) against the live stack, printing
+a colored pass/fail summary with a non-zero exit code if anything fails.
+
 ### 1. Successful BUY
 
 ```bash
